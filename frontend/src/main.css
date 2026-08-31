@@ -1,0 +1,301 @@
+:root {
+  color-scheme: light;
+  --bg: #faf7f2;
+  --panel: #ffffff;
+  --border: #e2d9cb;
+  --text: #2c241b;
+  --muted: #7a6f5f;
+  --accent: #b5541a;
+  --accent-hover: #943f0f;
+  --danger: #a3312a;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+nav button {
+  margin-left: 0.5rem;
+}
+
+nav button.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+h2 {
+  margin-top: 0;
+}
+
+button {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+button.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  color: var(--text);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: 90px repeat(7, 1fr);
+  gap: 0.4rem;
+  overflow-x: auto;
+}
+
+.week-grid-header {
+  font-size: 0.8rem;
+  text-align: center;
+  color: var(--muted);
+  padding-bottom: 0.25rem;
+}
+
+.week-grid-corner {
+  visibility: hidden;
+}
+
+.week-grid-date {
+  font-size: 0.7rem;
+}
+
+.meal-type-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  text-transform: capitalize;
+  padding-right: 0.5rem;
+  font-weight: 600;
+}
+
+.week-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 130px;
+}
+
+.week-cell select {
+  width: 100%;
+}
+
+.week-cell-note {
+  font-size: 0.75rem;
+}
+
+.shopping-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.copy-status {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.shopping-category h3 {
+  margin-bottom: 0.4rem;
+  color: var(--accent);
+  font-size: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
+}
+
+.shopping-category ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+}
+
+.shopping-category li {
+  padding: 0.2rem 0;
+}
+
+.shopping-category li.checked label {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.qty {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.recipe-list {
+  list-style: none;
+  padding: 0;
+}
+
+.recipe-list-item {
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0;
+}
+
+.recipe-list-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.recipe-meta {
+  flex: 1;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.recipe-detail {
+  margin-top: 0.5rem;
+  padding-left: 1rem;
+  font-size: 0.9rem;
+}
+
+.instructions {
+  white-space: pre-wrap;
+}
+
+.source-link {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.add-recipe-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.ingredient-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  align-items: center;
+}
+
+.ingredient-qty {
+  width: 60px;
+}
+
+.ingredient-unit {
+  width: 70px;
+}
+
+.ingredient-name {
+  flex: 1;
+}
+
+.import-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.import-row input {
+  flex: 1;
+}
+
+.error {
+  color: var(--danger);
+}
+
+.success {
+  color: #2f7a3a;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 2rem;
+}
+
+@media (max-width: 700px) {
+  .add-recipe-section {
+    grid-template-columns: 1fr;
+  }
+}

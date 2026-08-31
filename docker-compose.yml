@@ -1,0 +1,43 @@
+# Two services on one bridge network:
+#   backend  — Node/Express + SQLite REST API. Holds the one persistent bit
+#              of state (recipe.db, via a named volume) so recipes and the
+#              meal plan survive `docker compose down` / rebuilds.
+#   frontend — static React bundle behind nginx, proxying /api to backend.
+#
+# No login/accounts anywhere in this stack on purpose — it's meant to run
+# on the household's own LAN (or their own tunnel), shared by both people,
+# the same "no auth, just reachable on your own network" model as the
+# flight-tracker project. See README for that assumption spelled out.
+#
+# Usage:
+#   docker compose up --build
+#   docker compose up -d --build   # detached
+#   docker compose down            # stop (add -v to also drop the sqlite volume)
+
+services:
+  backend:
+    build: ./backend
+    environment:
+      PORT: 4000
+      DATA_DIR: /app/data
+    volumes:
+      - backend-data:/app/data
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:4000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5174:80"
+
+volumes:
+  backend-data:

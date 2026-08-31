@@ -1,0 +1,22 @@
+# Node
+backend/node_modules/
+backend/dist/
+backend/data/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+
+# Env / secrets (none needed today, but keep the door open)
+.env
+.env.local
+*.log
