@@ -115,6 +115,24 @@ there's no real ICA integration and that this is meant to be pasted in or
 used to search item-by-item in ICA's own app — nothing in the UI or code
 claims a fake "ICA integration."
 
+## Phase reporting
+
+The backend prints a one-line marker when what it's doing changes:
+
+```
+[phase:ready] listening on :4000
+[phase:populating_data] importing a recipe from bbcgoodfood.com
+```
+
+[docker-monitor](../docker-monitor) reads these out of the container log
+stream so the portfolio's dashboard can show what this app is *doing* —
+Docker itself can only say "running". `backend/src/phase.ts` emits on
+transition only; the vocabulary and the rules are documented in
+docker-monitor's README under "Phase reporting".
+
+Nothing here depends on docker-monitor running: unread, these are
+ordinary log lines.
+
 ## Data model / where things live
 
 - `backend/src/schema.sql` — the whole SQLite schema (`recipe`,
@@ -126,6 +144,7 @@ claims a fake "ICA integration."
 - `backend/src/services/shoppingList.ts` — the aggregation/combining logic
   for turning a week's planned recipes into one list.
 - `backend/src/services/icaExport.ts` — the plain-text/CSV export.
+- `backend/src/phase.ts` — the phase markers above.
 - `frontend/src/components/` — one component per screen area (week
   planner, shopping list, recipe list/form/import).
 
