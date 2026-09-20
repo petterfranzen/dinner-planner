@@ -1,5 +1,8 @@
 import cors from "cors";
 import express from "express";
+import { Phase, setPhase } from "./phase.js";
+
+setPhase(Phase.StartingUp, "applying schema");
 import "./db.js"; // ensures schema is applied before routes touch it
 import { recipesRouter } from "./routes/recipes.js";
 import { mealPlanRouter } from "./routes/mealPlan.js";
@@ -23,6 +26,18 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 const port = Number(process.env.PORT ?? 4000);
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`dinner-planner backend listening on :${port}`);
+  setPhase(Phase.Ready, `listening on :${port}`);
 });
+
+// Compose sends SIGTERM on `stop`, and docker-monitor's control API stops
+// this stack when a demo's lease expires — so this is a routine shutdown,
+// not an incident, and saying so keeps the dashboard from showing a
+// half-stopped stack as simply broken. SIGINT covers Ctrl-C in dev.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    setPhase(Phase.ShuttingDown, `received ${signal}`);
+    server.close(() => process.exit(0));
+  });
+}

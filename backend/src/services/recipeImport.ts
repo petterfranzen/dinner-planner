@@ -1,3 +1,4 @@
+import { duringPhase } from "../phase.js";
 import { parseIngredientLine } from "./ingredientParser.js";
 import type { ParsedIngredient } from "../types.js";
 
@@ -152,7 +153,14 @@ export interface ImportedRecipe {
 
 export async function importRecipeFromUrl(rawUrl: string): Promise<ImportedRecipe> {
   const url = assertSupportedUrl(rawUrl);
+  return duringPhase(`importing a recipe from ${url.hostname}`, () => fetchAndParse(url, rawUrl));
+}
 
+// rawUrl is carried through rather than re-derived from `url`: it's what
+// gets stored as sourceUrl, and URL parsing normalises things (trailing
+// slashes, default ports, escaping) that would otherwise silently change
+// what the recipe records as its source.
+async function fetchAndParse(url: URL, rawUrl: string): Promise<ImportedRecipe> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   let html: string;
