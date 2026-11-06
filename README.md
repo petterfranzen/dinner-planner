@@ -195,7 +195,10 @@ Read this before trusting the app with real weekly planning:
   - Only these three hosts are allowlisted; anything else is rejected
     with a clear message before any fetch happens (also limits this to
     being obviously a personal one-recipe clipper, not a general URL
-    fetcher).
+    fetcher). The fetch itself is bounded: it refuses private, loopback
+    and link-local addresses (checked on the pasted URL, after DNS
+    resolution, and again on every redirect hop), gives up after 15 s
+    and reads at most 2 MB.
 - **Ingredient parsing is regex/keyword based, not NLP.** Quantity/unit
   extraction on imported ingredient lines handles common patterns (whole
   numbers, decimals, simple and mixed fractions, unicode fractions like
