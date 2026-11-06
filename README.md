@@ -74,6 +74,7 @@ To run without Docker:
 cd backend
 npm install
 npm run dev        # http://localhost:4000
+npm test           # unit tests (jest): ingredient parsing, shopping-list aggregation
 
 # frontend, in another terminal
 cd frontend
@@ -141,8 +142,11 @@ ordinary log lines.
   extraction/parsing, schema.org → internal recipe mapping.
 - `backend/src/services/ingredientParser.ts` — free-text ingredient line →
   quantity/unit/name, plus the keyword-based category lookup.
-- `backend/src/services/shoppingList.ts` — the aggregation/combining logic
-  for turning a week's planned recipes into one list.
+- `backend/src/services/shoppingList.ts` — loads the week's planned recipe
+  ingredients and hands them to the aggregator.
+- `backend/src/services/aggregator.ts` — the pure aggregation/combining
+  logic (unit conversion, merging, rounding, servings scaling); unit
+  tested in `backend/test/aggregator.test.ts`.
 - `backend/src/services/icaExport.ts` — the plain-text/CSV export.
 - `backend/src/phase.ts` — the phase markers above.
 - `frontend/src/components/` — one component per screen area (week
@@ -202,13 +206,19 @@ Read this before trusting the app with real weekly planning:
   just end up filed as "1 large eggs" instead of a clean "2 eggs, size:
   large".
 - **Shopping-list combining is best-effort, not exact.** Two ingredients
-  combine into one line only when their *normalized name and unit both
-  match* (e.g. "onion" + "onions", both in no unit or both in "g", merge
-  and sum). There is **no unit-conversion table** — "2 cups flour" from
-  one recipe and "100g flour" from another will **not** be converted into
-  each other; they show up as two separate lines under "flour" rather
-  than being silently combined wrong. This is a deliberate, documented
-  trade-off for v1, not an oversight.
+  combine into one line when their *normalized name* matches and their
+  units are compatible: the same unit, or two units of the same **metric
+  family** that can be converted (g/kg for mass; ml/cl/dl/l/msk/tsk for
+  volume). So "500 g flour" + "0.5 kg flour" sum to "1000 g flour", and
+  "2 msk" + "1 dl" of the same thing sum to "130 ml". A bucket that uses
+  more than one unit is reported in the family's base unit (g or ml); a
+  bucket that used a single unit keeps that unit. **Units outside those
+  families are never converted** — "2 cups flour" and "100 g flour" stay
+  on separate lines under "flour" rather than being silently combined
+  wrong (a cup is not safely 240 ml in every kitchen, and a Swedish "msk"
+  is not a US "tbsp"). Ingredients with no readable quantity are listed
+  once per distinct raw text, never summed. This is still a deliberate,
+  documented trade-off for v1, not an oversight.
 - **Category assignment is a hand-written keyword list**
   (`ingredientParser.ts`), not a real product/ingredient database.
   Anything not matching a keyword lands in "Other" — expect to see that
