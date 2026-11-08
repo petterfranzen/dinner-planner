@@ -1,5 +1,7 @@
 export function mondayOf(date: Date): string {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const d = new Date(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
+  );
   const day = d.getUTCDay();
   const diff = day === 0 ? 6 : day - 1;
   d.setUTCDate(d.getUTCDate() - diff);
@@ -14,7 +16,11 @@ export function addDays(isoDate: string, days: number): string {
 
 export function formatDayLabel(isoDate: string): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 export function currentWeekStart(): string {

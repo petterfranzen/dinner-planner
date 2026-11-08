@@ -16,7 +16,9 @@ import type { ShoppingListItem } from "../types.js";
 
 function formatQuantity(item: ShoppingListItem): string {
   if (item.quantity == null) return "";
-  const q = Number.isInteger(item.quantity) ? String(item.quantity) : item.quantity.toFixed(2);
+  const q = Number.isInteger(item.quantity)
+    ? String(item.quantity)
+    : item.quantity.toFixed(2);
   return item.unit ? `${q} ${item.unit}` : q;
 }
 
@@ -29,7 +31,9 @@ export function toPlainText(items: ShoppingListItem[]): string {
   }
 
   const lines: string[] = ["Shopping list", ""];
-  for (const [category, categoryItems] of [...byCategory.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  for (const [category, categoryItems] of [...byCategory.entries()].sort(
+    (a, b) => a[0].localeCompare(b[0]),
+  )) {
     lines.push(`${category}`, "-".repeat(category.length));
     for (const item of categoryItems) {
       const qty = formatQuantity(item);

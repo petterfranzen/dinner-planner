@@ -20,10 +20,17 @@ app.use("/api/shopping-list", shoppingListRouter);
 
 // Centralized error handler as a last resort - individual routes already
 // catch their own errors, this is just a safety net.
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err);
-  res.status(500).json({ error: "Internal server error" });
-});
+app.use(
+  (
+    err: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  },
+);
 
 const port = Number(process.env.PORT ?? 4000);
 const server = app.listen(port, () => {

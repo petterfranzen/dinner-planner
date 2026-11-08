@@ -17,12 +17,18 @@ export function RecipeForm({ onCreated }: Props) {
   const [title, setTitle] = useState("");
   const [servings, setServings] = useState(4);
   const [instructions, setInstructions] = useState("");
-  const [rows, setRows] = useState<IngredientRow[]>([emptyRow(), emptyRow(), emptyRow()]);
+  const [rows, setRows] = useState<IngredientRow[]>([
+    emptyRow(),
+    emptyRow(),
+    emptyRow(),
+  ]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   function updateRow(index: number, field: keyof IngredientRow, value: string) {
-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+    setRows((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)),
+    );
   }
 
   function addRow() {
@@ -40,7 +46,9 @@ export function RecipeForm({ onCreated }: Props) {
     const ingredients = rows
       .filter((r) => r.name.trim())
       .map((r) => ({
-        quantity: r.quantity.trim() ? Number(r.quantity.trim().replace(",", ".")) : null,
+        quantity: r.quantity.trim()
+          ? Number(r.quantity.trim().replace(",", "."))
+          : null,
         unit: r.unit.trim() || null,
         name: r.name.trim(),
       }));
@@ -52,7 +60,12 @@ export function RecipeForm({ onCreated }: Props) {
 
     setSaving(true);
     try {
-      await api.createRecipe({ title: title.trim(), servings, instructions, ingredients });
+      await api.createRecipe({
+        title: title.trim(),
+        servings,
+        instructions,
+        ingredients,
+      });
       setTitle("");
       setServings(4);
       setInstructions("");
@@ -71,7 +84,11 @@ export function RecipeForm({ onCreated }: Props) {
       {error && <p className="error">{error}</p>}
       <label>
         Title
-        <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
       </label>
       <label>
         Servings
@@ -104,7 +121,11 @@ export function RecipeForm({ onCreated }: Props) {
             value={row.name}
             onChange={(e) => updateRow(i, "name", e.target.value)}
           />
-          <button type="button" className="link-button" onClick={() => removeRow(i)}>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => removeRow(i)}
+          >
             ✕
           </button>
         </div>
@@ -115,7 +136,11 @@ export function RecipeForm({ onCreated }: Props) {
 
       <label>
         Instructions
-        <textarea rows={5} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        <textarea
+          rows={5}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+        />
       </label>
 
       <button type="submit" disabled={saving}>

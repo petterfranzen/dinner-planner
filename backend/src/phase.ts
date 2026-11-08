@@ -54,7 +54,10 @@ export function currentPhase(): PhaseName | null {
  * someone watching the dashboard would wait for something that is never
  * going to finish.
  */
-export async function duringPhase<T>(detail: string, work: () => Promise<T>): Promise<T> {
+export async function duringPhase<T>(
+  detail: string,
+  work: () => Promise<T>,
+): Promise<T> {
   setPhase(Phase.PopulatingData, detail);
   try {
     return await work();

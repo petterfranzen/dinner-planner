@@ -8,7 +8,9 @@ interface Props {
 }
 
 export function RecipeList({ recipes, onChanged }: Props) {
-  const [expanded, setExpanded] = useState<Record<number, RecipeWithIngredients | undefined>>({});
+  const [expanded, setExpanded] = useState<
+    Record<number, RecipeWithIngredients | undefined>
+  >({});
   const [error, setError] = useState<string | null>(null);
 
   async function toggle(id: number) {
@@ -25,7 +27,12 @@ export function RecipeList({ recipes, onChanged }: Props) {
   }
 
   async function remove(id: number) {
-    if (!confirm("Delete this recipe? It will also disappear from any planned meals.")) return;
+    if (
+      !confirm(
+        "Delete this recipe? It will also disappear from any planned meals.",
+      )
+    )
+      return;
     try {
       await api.deleteRecipe(id);
       onChanged();
@@ -51,7 +58,8 @@ export function RecipeList({ recipes, onChanged }: Props) {
                   {full ? "▾" : "▸"} {r.title}
                 </button>
                 <span className="recipe-meta">
-                  {r.servings} servings · {r.ingredient_count ?? "?"} ingredients
+                  {r.servings} servings · {r.ingredient_count ?? "?"}{" "}
+                  ingredients
                   {r.source_site ? ` · from ${r.source_site}` : ""}
                 </span>
                 <button className="danger" onClick={() => remove(r.id)}>
@@ -75,7 +83,11 @@ export function RecipeList({ recipes, onChanged }: Props) {
                   {full.source_url && (
                     <p className="source-link">
                       Source:{" "}
-                      <a href={full.source_url} target="_blank" rel="noreferrer">
+                      <a
+                        href={full.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         {full.source_url}
                       </a>
                     </p>

@@ -43,17 +43,24 @@ mealPlanRouter.put("/:week/:day/:mealType", (req, res) => {
   const mealType = req.params.mealType;
 
   if (!Number.isInteger(day) || day < 0 || day > 6) {
-    return res.status(400).json({ error: "day must be 0 (Mon) through 6 (Sun)" });
+    return res
+      .status(400)
+      .json({ error: "day must be 0 (Mon) through 6 (Sun)" });
   }
   if (!MEAL_TYPES.includes(mealType as (typeof MEAL_TYPES)[number])) {
-    return res.status(400).json({ error: `mealType must be one of: ${MEAL_TYPES.join(", ")}` });
+    return res
+      .status(400)
+      .json({ error: `mealType must be one of: ${MEAL_TYPES.join(", ")}` });
   }
 
   const body = req.body as UpsertBody;
 
   if (body.recipeId != null) {
-    const exists = db.prepare(`SELECT 1 FROM recipe WHERE id = ?`).get(body.recipeId);
-    if (!exists) return res.status(400).json({ error: "recipeId does not exist" });
+    const exists = db
+      .prepare(`SELECT 1 FROM recipe WHERE id = ?`)
+      .get(body.recipeId);
+    if (!exists)
+      return res.status(400).json({ error: "recipeId does not exist" });
   }
 
   db.prepare(

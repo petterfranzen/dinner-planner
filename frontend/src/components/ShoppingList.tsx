@@ -8,7 +8,9 @@ interface Props {
 
 function formatQty(item: ShoppingListItem): string {
   if (item.quantity == null) return "";
-  const q = Number.isInteger(item.quantity) ? String(item.quantity) : item.quantity.toFixed(2);
+  const q = Number.isInteger(item.quantity)
+    ? String(item.quantity)
+    : item.quantity.toFixed(2);
   return item.unit ? `${q} ${item.unit}` : q;
 }
 
@@ -67,7 +69,12 @@ export function ShoppingList({ weekStart }: Props) {
   if (loading) return <p>Loading shopping list…</p>;
   if (error) return <p className="error">{error}</p>;
   if (items.length === 0) {
-    return <p>No recipes planned for this week yet — assign recipes in the plan above to build a shopping list.</p>;
+    return (
+      <p>
+        No recipes planned for this week yet — assign recipes in the plan above
+        to build a shopping list.
+      </p>
+    );
   }
 
   return (
@@ -83,8 +90,8 @@ export function ShoppingList({ weekStart }: Props) {
         {copyStatus && <span className="copy-status">{copyStatus}</span>}
       </div>
       <p className="hint">
-        No official ICA integration exists (see README) — use these to paste into notes or search item-by-item in
-        the ICA app.
+        No official ICA integration exists (see README) — use these to paste
+        into notes or search item-by-item in the ICA app.
       </p>
       {grouped.map(([category, categoryItems]) => (
         <div className="shopping-category" key={category}>
@@ -95,9 +102,15 @@ export function ShoppingList({ weekStart }: Props) {
               return (
                 <li key={key} className={checked.has(key) ? "checked" : ""}>
                   <label>
-                    <input type="checkbox" checked={checked.has(key)} onChange={() => toggle(key)} />
+                    <input
+                      type="checkbox"
+                      checked={checked.has(key)}
+                      onChange={() => toggle(key)}
+                    />
                     {item.name}
-                    {formatQty(item) && <span className="qty"> — {formatQty(item)}</span>}
+                    {formatQty(item) && (
+                      <span className="qty"> — {formatQty(item)}</span>
+                    )}
                   </label>
                 </li>
               );

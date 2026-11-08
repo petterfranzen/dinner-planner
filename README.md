@@ -84,6 +84,26 @@ npm run dev         # http://localhost:5173, proxies /api to :4000
 No environment variables or secrets are required — there's nothing to
 configure before first run.
 
+## Linting, formatting and license
+
+Both packages share one Prettier config (`.prettierrc.json` at the repo
+root, plus a `.prettierignore` in each package) and have their own small
+ESLint flat config (`eslint.config.js`) built on
+[typescript-eslint](https://typescript-eslint.io/)'s `recommended` rules;
+formatting rules are left to Prettier. Run them from inside either
+package:
+
+```bash
+cd backend   # or: cd frontend
+npm run lint          # eslint .
+npm run format        # prettier --write .
+npm run format:check  # prettier --check .  (CI-friendly, no writes)
+```
+
+Tool versions are pinned in each `package.json` so CI installs the same
+ones. The project is `UNLICENSED`; see [`LICENSE`](LICENSE) — all rights
+reserved, no open-source license is granted.
+
 ## ICA export research findings
 
 I looked (actual web search, not assumption) for any real, documented way

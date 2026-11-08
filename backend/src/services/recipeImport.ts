@@ -27,7 +27,9 @@ export class RecipeImportError extends Error {
 
 function isAllowedHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/^www\./, "");
-  return ALLOWED_HOSTS.some((allowed) => h === allowed || h.endsWith(`.${allowed}`));
+  return ALLOWED_HOSTS.some(
+    (allowed) => h === allowed || h.endsWith(`.${allowed}`),
+  );
 }
 
 export function assertSupportedUrl(rawUrl: string): URL {
@@ -96,7 +98,9 @@ function hasType(obj: Record<string, unknown>, type: string): boolean {
   return false;
 }
 
-function findRecipeNode(nodes: Record<string, unknown>[]): Record<string, unknown> | null {
+function findRecipeNode(
+  nodes: Record<string, unknown>[],
+): Record<string, unknown> | null {
   return nodes.find((n) => hasType(n, "Recipe")) ?? null;
 }
 
@@ -151,16 +155,23 @@ export interface ImportedRecipe {
   sourceSite: string;
 }
 
-export async function importRecipeFromUrl(rawUrl: string): Promise<ImportedRecipe> {
+export async function importRecipeFromUrl(
+  rawUrl: string,
+): Promise<ImportedRecipe> {
   const url = assertSupportedUrl(rawUrl);
-  return duringPhase(`importing a recipe from ${url.hostname}`, () => fetchAndParse(url, rawUrl));
+  return duringPhase(`importing a recipe from ${url.hostname}`, () =>
+    fetchAndParse(url, rawUrl),
+  );
 }
 
 // rawUrl is carried through rather than re-derived from `url`: it's what
 // gets stored as sourceUrl, and URL parsing normalises things (trailing
 // slashes, default ports, escaping) that would otherwise silently change
 // what the recipe records as its source.
-async function fetchAndParse(url: URL, rawUrl: string): Promise<ImportedRecipe> {
+async function fetchAndParse(
+  url: URL,
+  rawUrl: string,
+): Promise<ImportedRecipe> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   let html: string;
@@ -204,8 +215,11 @@ async function fetchAndParse(url: URL, rawUrl: string): Promise<ImportedRecipe> 
     );
   }
 
-  const title = typeof recipeNode.name === "string" ? recipeNode.name : "Imported recipe";
-  const ingredientLines = toStringArray(recipeNode.recipeIngredient ?? recipeNode.ingredients);
+  const title =
+    typeof recipeNode.name === "string" ? recipeNode.name : "Imported recipe";
+  const ingredientLines = toStringArray(
+    recipeNode.recipeIngredient ?? recipeNode.ingredients,
+  );
   if (ingredientLines.length === 0) {
     throw new RecipeImportError(
       "Found a recipe on that page, but it has no ingredient list we could read.",
@@ -213,7 +227,9 @@ async function fetchAndParse(url: URL, rawUrl: string): Promise<ImportedRecipe> 
     );
   }
   const ingredients = ingredientLines.map(parseIngredientLine);
-  const instructions = extractInstructions(recipeNode.recipeInstructions).join("\n");
+  const instructions = extractInstructions(recipeNode.recipeInstructions).join(
+    "\n",
+  );
   const servings = extractServings(recipeNode.recipeYield);
 
   return {

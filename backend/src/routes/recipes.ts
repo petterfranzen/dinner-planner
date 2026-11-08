@@ -1,8 +1,18 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { categorize, parseIngredientLine } from "../services/ingredientParser.js";
-import { importRecipeFromUrl, RecipeImportError } from "../services/recipeImport.js";
-import type { ParsedIngredient, RecipeIngredientRow, RecipeRow } from "../types.js";
+import {
+  categorize,
+  parseIngredientLine,
+} from "../services/ingredientParser.js";
+import {
+  importRecipeFromUrl,
+  RecipeImportError,
+} from "../services/recipeImport.js";
+import type {
+  ParsedIngredient,
+  RecipeIngredientRow,
+  RecipeRow,
+} from "../types.js";
 
 export const recipesRouter = Router();
 
@@ -31,7 +41,13 @@ function insertRecipe(
   );
 
   const txn = db.transaction(() => {
-    const info = insertRecipeStmt.run(title, servings, instructions, sourceUrl, sourceSite);
+    const info = insertRecipeStmt.run(
+      title,
+      servings,
+      instructions,
+      sourceUrl,
+      sourceSite,
+    );
     const recipeId = Number(info.lastInsertRowid);
     ingredients.forEach((ing, index) => {
       insertIngredientStmt.run(
@@ -51,10 +67,13 @@ function insertRecipe(
 }
 
 function getRecipeWithIngredients(id: number) {
-  const recipe = db.prepare(`SELECT * FROM recipe WHERE id = ?`).get(id) as RecipeRow | undefined;
+  const recipe = db.prepare(`SELECT * FROM recipe WHERE id = ?`).get(id) as
+    RecipeRow | undefined;
   if (!recipe) return null;
   const ingredients = db
-    .prepare(`SELECT * FROM recipe_ingredient WHERE recipe_id = ? ORDER BY position`)
+    .prepare(
+      `SELECT * FROM recipe_ingredient WHERE recipe_id = ? ORDER BY position`,
+    )
     .all(id) as RecipeIngredientRow[];
   return { ...recipe, ingredients };
 }
@@ -91,12 +110,16 @@ recipesRouter.post("/", (req, res) => {
     return res.status(400).json({ error: "title is required" });
   }
   if (!Array.isArray(body.ingredients) || body.ingredients.length === 0) {
-    return res.status(400).json({ error: "at least one ingredient is required" });
+    return res
+      .status(400)
+      .json({ error: "at least one ingredient is required" });
   }
 
   const ingredients: ParsedIngredient[] = body.ingredients.map((ing) => {
     if (!ing.name || !ing.name.trim()) {
-      throw Object.assign(new Error("each ingredient needs a name"), { status: 400 });
+      throw Object.assign(new Error("each ingredient needs a name"), {
+        status: 400,
+      });
     }
     return {
       rawText: ing.rawText?.trim() || describeIngredient(ing),
@@ -155,7 +178,8 @@ recipesRouter.post("/import", async (req, res) => {
 recipesRouter.delete("/:id", (req, res) => {
   const id = Number(req.params.id);
   const info = db.prepare(`DELETE FROM recipe WHERE id = ?`).run(id);
-  if (info.changes === 0) return res.status(404).json({ error: "Recipe not found" });
+  if (info.changes === 0)
+    return res.status(404).json({ error: "Recipe not found" });
   res.status(204).send();
 });
 

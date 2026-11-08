@@ -19,7 +19,9 @@ export function RecipeImport({ onImported }: Props) {
     setLoading(true);
     try {
       const recipe = await api.importRecipe(url.trim());
-      setStatus(`Imported "${recipe.title}" (${recipe.ingredients.length} ingredients).`);
+      setStatus(
+        `Imported "${recipe.title}" (${recipe.ingredients.length} ingredients).`,
+      );
       setUrl("");
       onImported();
     } catch (e) {
@@ -33,9 +35,10 @@ export function RecipeImport({ onImported }: Props) {
     <form className="recipe-import" onSubmit={submit}>
       <h3>Import a recipe from a URL</h3>
       <p className="hint">
-        Paste a single recipe link from BBC Good Food, Arla Köket (arla.se), or Apple News. This reads the
-        structured recipe data the page already publishes for search engines — it only imports the one recipe you
-        paste, nothing else on the site.
+        Paste a single recipe link from BBC Good Food, Arla Köket (arla.se), or
+        Apple News. This reads the structured recipe data the page already
+        publishes for search engines — it only imports the one recipe you paste,
+        nothing else on the site.
       </p>
       {error && <p className="error">{error}</p>}
       {status && <p className="success">{status}</p>}

@@ -34,10 +34,16 @@ export default function App() {
       <header>
         <h1>🍽️ Dinner Planner</h1>
         <nav>
-          <button className={tab === "plan" ? "active" : ""} onClick={() => setTab("plan")}>
+          <button
+            className={tab === "plan" ? "active" : ""}
+            onClick={() => setTab("plan")}
+          >
             This week's plan
           </button>
-          <button className={tab === "recipes" ? "active" : ""} onClick={() => setTab("recipes")}>
+          <button
+            className={tab === "recipes" ? "active" : ""}
+            onClick={() => setTab("recipes")}
+          >
             Recipes
           </button>
         </nav>
@@ -46,12 +52,18 @@ export default function App() {
       {tab === "plan" && (
         <main>
           <section className="week-nav">
-            <button onClick={() => setWeekStart(addDays(weekStart, -7))}>← Previous week</button>
+            <button onClick={() => setWeekStart(addDays(weekStart, -7))}>
+              ← Previous week
+            </button>
             <strong>
               {weekStart} – {weekEnd}
             </strong>
-            <button onClick={() => setWeekStart(addDays(weekStart, 7))}>Next week →</button>
-            <button onClick={() => setWeekStart(currentWeekStart())}>Today</button>
+            <button onClick={() => setWeekStart(addDays(weekStart, 7))}>
+              Next week →
+            </button>
+            <button onClick={() => setWeekStart(currentWeekStart())}>
+              Today
+            </button>
           </section>
 
           <section>
@@ -82,8 +94,9 @@ export default function App() {
 
       <footer>
         <p>
-          Runs privately for your household — no accounts, shared by everyone who can reach this app on your
-          network. See the README for details and limitations.
+          Runs privately for your household — no accounts, shared by everyone
+          who can reach this app on your network. See the README for details and
+          limitations.
         </p>
       </footer>
     </div>

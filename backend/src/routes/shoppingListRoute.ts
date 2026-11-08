@@ -18,7 +18,9 @@ function plannedRecipesForWeek(week: string) {
 
 // GET /api/shopping-list?week=YYYY-MM-DD
 shoppingListRouter.get("/", (req, res) => {
-  const week = mondayOf(typeof req.query.week === "string" ? req.query.week : todayIso());
+  const week = mondayOf(
+    typeof req.query.week === "string" ? req.query.week : todayIso(),
+  );
   const planned = plannedRecipesForWeek(week);
   const items = buildShoppingList(planned);
   res.json({ weekStartDate: week, items });
@@ -30,18 +32,26 @@ shoppingListRouter.get("/", (req, res) => {
 // downloadable list meant to be pasted into notes or worked from while
 // searching item-by-item in the ICA app.
 shoppingListRouter.get("/export", (req, res) => {
-  const week = mondayOf(typeof req.query.week === "string" ? req.query.week : todayIso());
+  const week = mondayOf(
+    typeof req.query.week === "string" ? req.query.week : todayIso(),
+  );
   const format = req.query.format === "csv" ? "csv" : "txt";
   const planned = plannedRecipesForWeek(week);
   const items = buildShoppingList(planned);
 
   if (format === "csv") {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="shopping-list-${week}.csv"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="shopping-list-${week}.csv"`,
+    );
     res.send(toCsv(items));
   } else {
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="shopping-list-${week}.txt"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="shopping-list-${week}.txt"`,
+    );
     res.send(toPlainText(items));
   }
 });

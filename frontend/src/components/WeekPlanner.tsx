@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { addDays, formatDayLabel } from "../dateUtils";
-import { DAY_NAMES, MEAL_TYPES, type MealPlanEntry, type MealType, type Recipe } from "../types";
+import {
+  DAY_NAMES,
+  MEAL_TYPES,
+  type MealPlanEntry,
+  type MealType,
+  type Recipe,
+} from "../types";
 
 interface Props {
   weekStart: string;
@@ -23,17 +29,25 @@ export function WeekPlanner({ weekStart, recipes }: Props) {
   }, [weekStart]);
 
   function entryFor(day: number, mealType: MealType) {
-    return entries.find((e) => e.day_of_week === day && e.meal_type === mealType);
+    return entries.find(
+      (e) => e.day_of_week === day && e.meal_type === mealType,
+    );
   }
 
-  async function setRecipe(day: number, mealType: MealType, recipeId: number | null) {
+  async function setRecipe(
+    day: number,
+    mealType: MealType,
+    recipeId: number | null,
+  ) {
     const updated = await api.setMealPlanSlot(weekStart, day, mealType, {
       recipeId,
       servingsOverride: null,
       note: null,
     });
     setEntries((prev) => {
-      const rest = prev.filter((e) => !(e.day_of_week === day && e.meal_type === mealType));
+      const rest = prev.filter(
+        (e) => !(e.day_of_week === day && e.meal_type === mealType),
+      );
       return [...rest, updated];
     });
   }
@@ -45,7 +59,9 @@ export function WeekPlanner({ weekStart, recipes }: Props) {
       note: note || null,
     });
     setEntries((prev) => {
-      const rest = prev.filter((e) => !(e.day_of_week === day && e.meal_type === mealType));
+      const rest = prev.filter(
+        (e) => !(e.day_of_week === day && e.meal_type === mealType),
+      );
       return [...rest, updated];
     });
   }
@@ -59,7 +75,9 @@ export function WeekPlanner({ weekStart, recipes }: Props) {
       {DAY_NAMES.map((name, i) => (
         <div className="week-grid-header" key={name}>
           <div>{name}</div>
-          <div className="week-grid-date">{formatDayLabel(addDays(weekStart, i))}</div>
+          <div className="week-grid-date">
+            {formatDayLabel(addDays(weekStart, i))}
+          </div>
         </div>
       ))}
 
@@ -87,7 +105,11 @@ function FragmentRow({
   mealType: MealType;
   entryFor: (day: number, mealType: MealType) => MealPlanEntry | undefined;
   recipes: Recipe[];
-  onSetRecipe: (day: number, mealType: MealType, recipeId: number | null) => void;
+  onSetRecipe: (
+    day: number,
+    mealType: MealType,
+    recipeId: number | null,
+  ) => void;
   onSetNote: (day: number, mealType: MealType, note: string) => void;
 }) {
   return (
@@ -99,7 +121,13 @@ function FragmentRow({
           <div className="week-cell" key={day}>
             <select
               value={entry?.recipe_id ?? ""}
-              onChange={(e) => onSetRecipe(day, mealType, e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) =>
+                onSetRecipe(
+                  day,
+                  mealType,
+                  e.target.value ? Number(e.target.value) : null,
+                )
+              }
             >
               <option value="">— none —</option>
               {recipes.map((r) => (

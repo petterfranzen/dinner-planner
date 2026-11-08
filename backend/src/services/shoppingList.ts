@@ -23,7 +23,9 @@ interface PlannedRecipe {
  *     couldn't confidently read one) are listed once per distinct raw
  *     text rather than summed.
  */
-export function buildShoppingList(recipes: PlannedRecipe[]): ShoppingListItem[] {
+export function buildShoppingList(
+  recipes: PlannedRecipe[],
+): ShoppingListItem[] {
   if (recipes.length === 0) return [];
 
   const placeholders = recipes.map(() => "?").join(",");
@@ -35,7 +37,9 @@ export function buildShoppingList(recipes: PlannedRecipe[]): ShoppingListItem[] 
        WHERE ri.recipe_id IN (${placeholders})
        ORDER BY ri.recipe_id, ri.position`,
     )
-    .all(...recipes.map((r) => r.recipeId)) as (RecipeIngredientRow & { recipe_servings: number })[];
+    .all(...recipes.map((r) => r.recipeId)) as (RecipeIngredientRow & {
+    recipe_servings: number;
+  })[];
 
   const servingsOverrideByRecipe = new Map(
     recipes.map((r) => [r.recipeId, r.servingsOverride] as const),
@@ -44,7 +48,13 @@ export function buildShoppingList(recipes: PlannedRecipe[]): ShoppingListItem[] 
   // key -> accumulator
   const groups = new Map<
     string,
-    { name: string; unit: string | null; quantity: number | null; category: string; sources: Set<string> }
+    {
+      name: string;
+      unit: string | null;
+      quantity: number | null;
+      category: string;
+      sources: Set<string>;
+    }
   >();
 
   for (const row of rows) {
@@ -87,6 +97,9 @@ export function buildShoppingList(recipes: PlannedRecipe[]): ShoppingListItem[] 
     sources: Array.from(g.sources),
   }));
 
-  items.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  items.sort(
+    (a, b) =>
+      a.category.localeCompare(b.category) || a.name.localeCompare(b.name),
+  );
   return items;
 }
