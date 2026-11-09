@@ -243,16 +243,32 @@ export function parseIngredientLine(raw: string): ParsedIngredient {
 /**
  * Normalizes a name for shopping-list grouping/matching purposes: lowercase,
  * drop parenthetical asides ("onion (chopped)" -> "onion"), collapse
- * whitespace, and naively strip a trailing "s" so "onion"/"onions" match.
- * This is deliberately crude - see README "Known limitations".
+ * whitespace, and fold a crude English plural back to a singular so
+ * "onion"/"onions" and "tomato"/"tomatoes" match.
+ *
+ * Deliberately crude - see README "Known limitations". It is not a stemmer:
+ * it handles the common plural endings without a dictionary, and it leaves
+ * words that merely end in "s" (asparagus, hummus, couscous) intact rather
+ * than chopping a letter off them. Irregular plurals ("anchovy") and words
+ * that look plural but aren't ("cookies" -> "cooky") can still miss.
  */
 export function normalizeIngredientName(name: string): string {
   let n = name.toLowerCase().trim();
   n = n.replace(/\([^)]*\)/g, " ");
   n = n.replace(/[.,;:]+$/, "");
   n = n.replace(/\s+/g, " ").trim();
-  if (n.length > 3 && n.endsWith("s") && !n.endsWith("ss")) {
-    n = n.slice(0, -1);
-  }
-  return n;
+  return singularize(n);
+}
+
+function singularize(word: string): string {
+  if (word.length <= 3) return word;
+  // Words that are singular as written but end in "s"-like letters.
+  if (/(?:ss|us|is)$/.test(word)) return word;
+  // berries -> berry, anchovies -> anchovy.
+  if (word.length > 4 && word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+  // boxes -> box, dishes -> dish, tomatoes -> tomato.
+  if (/(?:ses|xes|zes|ches|shes|oes)$/.test(word)) return word.slice(0, -2);
+  // onions -> onion, eggs -> egg.
+  if (word.endsWith("s")) return word.slice(0, -1);
+  return word;
 }
