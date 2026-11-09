@@ -13,6 +13,7 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
 RUN npm run build
 
 # --- Runtime stage: prod deps only + compiled JS ---

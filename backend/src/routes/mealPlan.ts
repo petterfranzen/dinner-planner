@@ -87,6 +87,13 @@ mealPlanRouter.delete("/:week/:day/:mealType", (req, res) => {
   const day = Number(req.params.day);
   const mealType = req.params.mealType;
 
+  if (!Number.isInteger(day) || day < 0 || day > 6) {
+    return res.status(400).json({ error: "day must be 0 (Mon) through 6 (Sun)" });
+  }
+  if (!MEAL_TYPES.includes(mealType as (typeof MEAL_TYPES)[number])) {
+    return res.status(400).json({ error: `mealType must be one of: ${MEAL_TYPES.join(", ")}` });
+  }
+
   db.prepare(
     `DELETE FROM meal_plan_entry WHERE week_start_date = ? AND day_of_week = ? AND meal_type = ?`,
   ).run(week, day, mealType);
