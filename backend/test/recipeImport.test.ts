@@ -117,9 +117,50 @@ describe("assertSupportedUrl - private, loopback and link-local targets", () => 
     "http://169.254.169.254/latest/meta-data/", // cloud metadata
     "http://[::1]/",
     "http://[fe80::1]/",
+    "http://[fe90::1]/", // link-local is the whole fe80::/10, not just "fe80"
+    "http://[febf::1]/",
+    "http://[fec0::1]/", // deprecated site-local, still not globally routable
     "http://[fd00::1]/",
+    "http://[::ffff:169.254.169.254]/", // IPv4-mapped metadata endpoint
   ])("blocks the private target %s", (url) => {
     expect(() => assertSupportedUrl(url)).toThrow(/private or internal/i);
+  });
+
+  // The rule this guard implements: a host is blocked when the address it
+  // points at is loopback, unspecified, link-local (fe80::/10), deprecated
+  // site-local (fec0::/10), unique-local (fc00::/7), multicast (ff00::/8), or
+  // an IPv4-mapped/compatible form whose embedded IPv4 is itself private.
+  // Everything else - a genuinely globally routable address - is left alone.
+  it("blocks the whole fe80::/10 link-local range, not just the fe80 prefix", () => {
+    for (const host of ["fe80::1", "fe9a::1", "fe90::1", "febf::1", "fe80::abcd:1:2:3"]) {
+      expect(isBlockedHost(host)).toBe(true);
+    }
+  });
+
+  it("blocks the other non-public IPv6 ranges and the unspecified address", () => {
+    for (const host of ["::", "::1", "fc00::1", "fd12:3456:789a::1", "fec0::1", "feff::1", "ff02::1"]) {
+      expect(isBlockedHost(host)).toBe(true);
+    }
+  });
+
+  it("blocks IPv4-mapped and -compatible addresses in both shapes", () => {
+    // Dotted, as a person writes it.
+    for (const host of ["::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:10.0.0.5", "::ffff:192.168.1.1"]) {
+      expect(isBlockedHost(host)).toBe(true);
+    }
+    // Hex, which is what new URL() rewrites the dotted form to - the shape a
+    // URL-derived host actually arrives in.
+    for (const host of ["::ffff:7f00:1", "::ffff:a9fe:a9fe", "::ffff:0a00:5", "::ffff:c0a8:101"]) {
+      expect(isBlockedHost(host)).toBe(true);
+    }
+  });
+
+  it("leaves a public address reachable", () => {
+    expect(isBlockedHost("2001:4860:4860::8888")).toBe(false);
+    expect(isBlockedHost("2606:4700::1111")).toBe(false);
+    expect(isBlockedHost("2a00:1450:400f:80d::200e")).toBe(false);
+    // A mapped address is judged on the IPv4 it carries, not blanket-blocked.
+    expect(isBlockedHost("::ffff:5db8:d822")).toBe(false); // ::ffff:93.184.216.34
   });
 
   it("isBlockedHost classifies public hosts as reachable", () => {
@@ -148,7 +189,13 @@ describe("assertSafeRedirectUrl - the redirect gate", () => {
 });
 
 describe("importRecipeFromUrl - redirects are re-checked", () => {
-  it.each(["http://127.0.0.1/admin", "http://169.254.169.254/latest/meta-data/", "http://10.1.2.3/"])(
+  it.each([
+    "http://127.0.0.1/admin",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://10.1.2.3/",
+    "http://[fe90::1]/", // the redirect gate has no allowlist, so this is the live bypass
+    "http://[::ffff:169.254.169.254]/latest/meta-data/",
+  ])(
     "refuses a redirect to %s",
     async (target) => {
       const fetchImpl = queuedFetch([redirect(target)]);

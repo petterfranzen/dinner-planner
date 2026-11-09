@@ -85,15 +85,41 @@ function isPrivateIPv4(ip: string): boolean {
   return false;
 }
 
+// IPv4-mapped / -compatible forms. Two shapes: the dotted one a person types
+// (::ffff:127.0.0.1), and the hex one new URL() rewrites it to
+// (::ffff:a9fe:a9fe) - the hex shape is what actually reaches this module for
+// any URL-derived host, so both have to be understood.
+const MAPPED_DOTTED = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/;
+const MAPPED_HEX = /^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+
+/** The first 16 bits of an IPv6 address, as a number. */
+function high16Bits(ip: string): number {
+  // A leading "::" means the address is zero-padded on the left, so its first
+  // hextet is 0 (::1, ::ffff:a9fe:a9fe).
+  const first = ip.startsWith(":") ? "0" : ip.split(":")[0];
+  return /^[0-9a-f]{1,4}$/.test(first) ? parseInt(first, 16) : 0;
+}
+
 function isPrivateIPv6(ip: string): boolean {
   const h = ip.toLowerCase();
-  // IPv4-mapped / -compatible forms (::ffff:127.0.0.1) - judge the IPv4 part.
-  const mapped = h.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
+  // IPv4-mapped / -compatible forms - judge the IPv4 address they carry.
+  const mapped = h.match(MAPPED_DOTTED);
   if (mapped) return isPrivateIPv4(mapped[1]);
+  const mappedHex = h.match(MAPPED_HEX);
+  if (mappedHex) {
+    const n = (parseInt(mappedHex[1], 16) << 16) | parseInt(mappedHex[2], 16);
+    return isPrivateIPv4(`${n >>> 24}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`);
+  }
   if (h === "::1" || h === "::") return true; // loopback / unspecified
-  if (h.startsWith("fe80")) return true; // link-local fe80::/10
-  if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique-local fc00::/7
-  if (h.startsWith("ff")) return true; // multicast ff00::/8
+
+  // Everything else is judged on its leading 16 bits. Masking the value rather
+  // than matching a string prefix is what makes the whole /10 match: fe80::/10
+  // runs from fe80 to febf, so "fe80" as a prefix misses fe90::-febf::.
+  const high = high16Bits(h);
+  if ((high & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((high & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local (deprecated, RFC 3879)
+  if ((high & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+  if ((high & 0xff00) === 0xff00) return true; // ff00::/8 multicast
   return false;
 }
 
