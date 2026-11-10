@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { duringPhase } from "../phase.js";
 import { parseIngredientLine } from "./ingredientParser.js";
 import type { ParsedIngredient } from "../types.js";
@@ -13,9 +15,43 @@ import type { ParsedIngredient } from "../types.js";
 //     uses, both to keep this obviously a personal clipper (not a general
 //     purpose fetcher) and to avoid this becoming an SSRF-style "fetch any
 //     URL the server can reach" endpoint
+//   - refuses an address that is private, loopback or link-local, and one
+//     whose hostname *resolves* to such an address - checked on the pasted
+//     URL and again on every redirect hop - so the fetch cannot be bounced
+//     at the container's own network, a cloud metadata endpoint, or another
+//     service on the LAN. A redirect deliberately does not have to be on the
+//     allowlist (an apple.news share link 30x's to the publisher's own
+//     domain), but it must still pass the scheme and private-address checks.
 //   - stores only the one recipe the person pasted, not the site's catalog
 
 const ALLOWED_HOSTS = ["bbcgoodfood.com", "arla.se", "apple.news"];
+
+/** Redirect hops followed before giving up. */
+const MAX_REDIRECTS = 5;
+
+// Hard ceiling on the response body we will read, so one page (or a hostile
+// / looping response) cannot exhaust the container's memory.
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MiB
+
+// Whole-request wall clock. Apple News short links and a slow origin fit well
+// inside this; a black-holed connect does not.
+const FETCH_TIMEOUT_MS = 15_000;
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+const BROWSER_HEADERS: Record<string, string> = {
+  // A plain fetch UA gets blocked/soft-blocked by some sites; a normal
+  // browser UA is enough to get the same HTML a person's browser sees.
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml",
+};
+
+const PRIVATE_ADDRESS_MESSAGE =
+  "That URL points at a private or internal network address, which this importer won't fetch.";
+
+const TOO_LARGE_MESSAGE =
+  "That page is too large to import (the importer only reads pages up to 2 MB).";
 
 export class RecipeImportError extends Error {
   status: number;
@@ -25,20 +61,109 @@ export class RecipeImportError extends Error {
   }
 }
 
+// --- target validation -----------------------------------------------------
+
+/** Strips the brackets Node's URL puts around an IPv6 host and a trailing dot. */
+function unbracket(hostname: string): string {
+  return hostname.replace(/^\[/, "").replace(/\]$/, "").replace(/\.$/, "");
+}
+
+function isPrivateIPv4(ip: string): boolean {
+  const parts = ip.split(".").map((n) => Number(n));
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false;
+  }
+  const [a, b] = parts;
+  if (a === 0) return true; // 0.0.0.0/8 "this network"
+  if (a === 10) return true; // 10.0.0.0/8 private
+  if (a === 127) return true; // loopback
+  if (a === 169 && b === 254) return true; // link-local (incl. 169.254.169.254 metadata)
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 private
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16 private
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+  if (a >= 224) return true; // multicast (224/4) and reserved (240/4)
+  return false;
+}
+
+// IPv4-mapped / -compatible forms. Two shapes: the dotted one a person types
+// (::ffff:127.0.0.1), and the hex one new URL() rewrites it to
+// (::ffff:a9fe:a9fe) - the hex shape is what actually reaches this module for
+// any URL-derived host, so both have to be understood.
+const MAPPED_DOTTED = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/;
+const MAPPED_HEX = /^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+
+/** The first 16 bits of an IPv6 address, as a number. */
+function high16Bits(ip: string): number {
+  // A leading "::" means the address is zero-padded on the left, so its first
+  // hextet is 0 (::1, ::ffff:a9fe:a9fe).
+  const first = ip.startsWith(":") ? "0" : ip.split(":")[0];
+  return /^[0-9a-f]{1,4}$/.test(first) ? parseInt(first, 16) : 0;
+}
+
+function isPrivateIPv6(ip: string): boolean {
+  const h = ip.toLowerCase();
+  // IPv4-mapped / -compatible forms - judge the IPv4 address they carry.
+  const mapped = h.match(MAPPED_DOTTED);
+  if (mapped) return isPrivateIPv4(mapped[1]);
+  const mappedHex = h.match(MAPPED_HEX);
+  if (mappedHex) {
+    const n = (parseInt(mappedHex[1], 16) << 16) | parseInt(mappedHex[2], 16);
+    return isPrivateIPv4(`${n >>> 24}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`);
+  }
+  if (h === "::1" || h === "::") return true; // loopback / unspecified
+
+  // Everything else is judged on its leading 16 bits. Masking the value rather
+  // than matching a string prefix is what makes the whole /10 match: fe80::/10
+  // runs from fe80 to febf, so "fe80" as a prefix misses fe90::-febf::.
+  const high = high16Bits(h);
+  if ((high & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((high & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local (deprecated, RFC 3879)
+  if ((high & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+  if ((high & 0xff00) === 0xff00) return true; // ff00::/8 multicast
+  return false;
+}
+
+/**
+ * True for a host that is (or is a name for) a private, loopback, link-local
+ * or otherwise non-public address. IP literals and the well-known internal
+ * names are caught here; a public-looking name that *resolves* to a private
+ * address is caught separately, after the DNS lookup.
+ */
+export function isBlockedHost(hostname: string): boolean {
+  const h = unbracket(hostname.toLowerCase());
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  const version = isIP(h);
+  if (version === 4) return isPrivateIPv4(h);
+  if (version === 6) return isPrivateIPv6(h);
+  return false;
+}
+
 function isAllowedHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/^www\./, "");
   return ALLOWED_HOSTS.some((allowed) => h === allowed || h.endsWith(`.${allowed}`));
 }
 
-export function assertSupportedUrl(rawUrl: string): URL {
-  let url: URL;
+function assertScheme(url: URL): void {
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new RecipeImportError("Only http/https URLs are supported.", 400);
+  }
+}
+
+function parseUrl(rawUrl: string): URL {
   try {
-    url = new URL(rawUrl);
+    return new URL(rawUrl);
   } catch {
     throw new RecipeImportError("That doesn't look like a valid URL.", 400);
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new RecipeImportError("Only http/https URLs are supported.", 400);
+}
+
+/** Entry gate for a URL the user pasted: http(s) only, not a private/internal
+ * target, and on the allowlist. */
+export function assertSupportedUrl(rawUrl: string): URL {
+  const url = parseUrl(rawUrl);
+  assertScheme(url);
+  if (isBlockedHost(url.hostname)) {
+    throw new RecipeImportError(PRIVATE_ADDRESS_MESSAGE, 400);
   }
   if (!isAllowedHost(url.hostname)) {
     throw new RecipeImportError(
@@ -49,6 +174,181 @@ export function assertSupportedUrl(rawUrl: string): URL {
   }
   return url;
 }
+
+/**
+ * Gate for a *redirect* target. Deliberately does not re-apply the host
+ * allowlist: an apple.news share link 30x's to the publisher's own domain,
+ * which is the whole point of following it. It does enforce the trust
+ * boundary - scheme, and the private/loopback/link-local block - so an
+ * allowlisted host cannot bounce the fetch at the container's own network or
+ * a metadata endpoint.
+ */
+export function assertSafeRedirectUrl(rawUrl: string): URL {
+  const url = parseUrl(rawUrl);
+  assertScheme(url);
+  if (isBlockedHost(url.hostname)) {
+    throw new RecipeImportError(PRIVATE_ADDRESS_MESSAGE, 400);
+  }
+  return url;
+}
+
+// --- fetching --------------------------------------------------------------
+
+export interface FetchInit {
+  redirect: "manual";
+  signal: AbortSignal;
+  headers: Record<string, string>;
+}
+
+export interface FetchResponse {
+  status: number;
+  ok: boolean;
+  headers: { get(name: string): string | null };
+  body: ReadableStream<Uint8Array> | null;
+  text(): Promise<string>;
+}
+
+export type FetchLike = (url: string, init: FetchInit) => Promise<FetchResponse>;
+
+export type HostResolver = (hostname: string) => Promise<string[]>;
+
+const defaultFetch: FetchLike = (url, init) => fetch(url, init);
+
+const defaultResolve: HostResolver = async (hostname) => {
+  const addresses = await lookup(hostname, { all: true });
+  return addresses.map((a) => a.address);
+};
+
+/**
+ * Resolves the host and refuses if *any* address it points at is private.
+ * This closes DNS rebinding: an allowlisted name whose A record points into
+ * the container's network is blocked even though the name itself looks fine.
+ */
+async function assertResolvesToPublicAddress(url: URL, resolve: HostResolver): Promise<void> {
+  const host = unbracket(url.hostname);
+  if (isIP(host)) return; // literal IP - already judged by the caller
+  let addresses: string[];
+  try {
+    addresses = await resolve(host);
+  } catch {
+    throw new RecipeImportError(
+      "Could not look up that URL's host. Check the link and try again.",
+      502,
+    );
+  }
+  if (addresses.length === 0 || addresses.some((address) => isBlockedHost(address))) {
+    throw new RecipeImportError(PRIVATE_ADDRESS_MESSAGE, 400);
+  }
+}
+
+/** Reads the body, bailing out as soon as it exceeds the cap. */
+async function readBodyCapped(res: FetchResponse, maxBytes: number): Promise<string> {
+  const declared = res.headers.get("content-length");
+  if (declared !== null) {
+    const size = Number(declared);
+    if (Number.isFinite(size) && size > maxBytes) {
+      throw new RecipeImportError(TOO_LARGE_MESSAGE, 413);
+    }
+  }
+  const body = res.body;
+  if (!body || typeof body.getReader !== "function") {
+    const text = await res.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) {
+      throw new RecipeImportError(TOO_LARGE_MESSAGE, 413);
+    }
+    return text;
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        throw new RecipeImportError(TOO_LARGE_MESSAGE, 413);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+interface FetchDeps {
+  fetchImpl: FetchLike;
+  resolve: HostResolver;
+  timeoutMs: number;
+  maxBytes: number;
+  maxRedirects: number;
+}
+
+/**
+ * Fetches `rawUrl` following redirects *manually* so every hop is re-checked:
+ * the scheme and the private/loopback/link-local block apply to each target,
+ * not just the URL the user pasted. The whole request shares one abort signal
+ * (the timeout) and one size cap.
+ */
+async function fetchHtml(rawUrl: string, deps: FetchDeps): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
+  try {
+    let url = assertSupportedUrl(rawUrl);
+    for (let hop = 0; ; hop++) {
+      await assertResolvesToPublicAddress(url, deps.resolve);
+      const res = await deps.fetchImpl(url.toString(), {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: BROWSER_HEADERS,
+      });
+
+      if (REDIRECT_STATUSES.has(res.status)) {
+        if (hop >= deps.maxRedirects) {
+          throw new RecipeImportError("That URL redirected too many times. Try the final link.", 502);
+        }
+        const location = res.headers.get("location");
+        if (!location) {
+          throw new RecipeImportError("That URL redirected without a destination.", 502);
+        }
+        let next: URL;
+        try {
+          next = new URL(location, url);
+        } catch {
+          throw new RecipeImportError(
+            "That URL redirected to something that isn't a valid link.",
+            502,
+          );
+        }
+        url = assertSafeRedirectUrl(next.toString()); // scheme + private block on the hop
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new RecipeImportError(
+          `Could not fetch that page (HTTP ${res.status}). It may have moved or be blocking automated requests.`,
+          502,
+        );
+      }
+      return await readBodyCapped(res, deps.maxBytes);
+    }
+  } catch (err) {
+    if (err instanceof RecipeImportError) throw err;
+    const aborted = (err as { name?: string }).name === "AbortError";
+    throw new RecipeImportError(
+      aborted
+        ? "That page took too long to respond. Try again, or add the recipe manually."
+        : "Could not reach that URL. Check the link and your internet connection.",
+      502,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// --- JSON-LD parsing -------------------------------------------------------
 
 // Matches <script type="application/ld+json">...</script>, tolerating the
 // "+" being HTML-entity-encoded (arla.se emits type="application/ld&#x2B;json",
@@ -142,6 +442,8 @@ function extractServings(value: unknown): number {
   return 4; // reasonable default when the site doesn't say
 }
 
+// --- public API ------------------------------------------------------------
+
 export interface ImportedRecipe {
   title: string;
   servings: number;
@@ -151,47 +453,39 @@ export interface ImportedRecipe {
   sourceSite: string;
 }
 
-export async function importRecipeFromUrl(rawUrl: string): Promise<ImportedRecipe> {
+/** Overridable seams (fetch, DNS resolver, limits) - the defaults are the
+ * real ones; tests inject fakes so no network is touched. */
+export interface RecipeImportOptions {
+  fetchImpl?: FetchLike;
+  resolve?: HostResolver;
+  timeoutMs?: number;
+  maxBytes?: number;
+  maxRedirects?: number;
+}
+
+export async function importRecipeFromUrl(
+  rawUrl: string,
+  options: RecipeImportOptions = {},
+): Promise<ImportedRecipe> {
   const url = assertSupportedUrl(rawUrl);
-  return duringPhase(`importing a recipe from ${url.hostname}`, () => fetchAndParse(url, rawUrl));
+  const deps: FetchDeps = {
+    fetchImpl: options.fetchImpl ?? defaultFetch,
+    resolve: options.resolve ?? defaultResolve,
+    timeoutMs: options.timeoutMs ?? FETCH_TIMEOUT_MS,
+    maxBytes: options.maxBytes ?? MAX_RESPONSE_BYTES,
+    maxRedirects: options.maxRedirects ?? MAX_REDIRECTS,
+  };
+  return duringPhase(`importing a recipe from ${url.hostname}`, () =>
+    fetchAndParse(url, rawUrl, deps),
+  );
 }
 
 // rawUrl is carried through rather than re-derived from `url`: it's what
 // gets stored as sourceUrl, and URL parsing normalises things (trailing
 // slashes, default ports, escaping) that would otherwise silently change
 // what the recipe records as its source.
-async function fetchAndParse(url: URL, rawUrl: string): Promise<ImportedRecipe> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  let html: string;
-  try {
-    const res = await fetch(url, {
-      redirect: "follow", // needed for apple.news short links, which 30x to the actual article
-      signal: controller.signal,
-      headers: {
-        // A plain fetch UA gets blocked/soft-blocked by some sites; a normal
-        // browser UA is enough to get the same HTML a person's browser sees.
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml",
-      },
-    });
-    if (!res.ok) {
-      throw new RecipeImportError(
-        `Could not fetch that page (HTTP ${res.status}). It may have moved or be blocking automated requests.`,
-        502,
-      );
-    }
-    html = await res.text();
-  } catch (err) {
-    if (err instanceof RecipeImportError) throw err;
-    throw new RecipeImportError(
-      "Could not reach that URL. Check the link and your internet connection.",
-      502,
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
+async function fetchAndParse(url: URL, rawUrl: string, deps: FetchDeps): Promise<ImportedRecipe> {
+  const html = await fetchHtml(rawUrl, deps);
 
   const nodes = flattenLdJsonBlocks(html);
   const recipeNode = findRecipeNode(nodes);
