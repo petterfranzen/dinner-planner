@@ -82,8 +82,39 @@ npm install
 npm run dev         # http://localhost:5173, proxies /api to :4000
 ```
 
-No environment variables or secrets are required — there's nothing to
-configure before first run.
+No environment variables or secrets are required — the defaults work out
+of the box. See [Configuration](#configuration-environment-variables) for
+the optional hardening variables (CORS allowlist, API token, import rate
+limit).
+
+## Configuration (environment variables)
+
+The backend runs with no configuration: every variable below is optional and
+the defaults are exactly what `docker compose up` uses. Set them under the
+`backend` service's `environment:` in `docker-compose.yml` (or in the shell for
+a non-Docker run).
+
+- `CORS_ORIGINS` — comma-separated list of **exact** origins allowed to call
+  the API cross-origin, for example `http://192.168.1.20:5174`. Unset (the
+  default) means **same-origin only**, which is all the household needs: the
+  browser talks to nginx on the same origin, so no CORS headers are involved.
+  There is no `*` wildcard, by design.
+- `API_TOKEN` — optional bearer token. Unset (the default) means **no auth**,
+  i.e. the current LAN behaviour where anyone who can reach the URL has full
+  read/write access. When set, every `/api` route except `/api/health`
+  requires the token in the `Authorization` header (bearer scheme); requests
+  without it get `401`. The token is compared in constant time and never
+  logged. Note that the browser UI does not send a token, so this gate is for
+  non-browser clients (curl, scripts) or for a token-checking proxy in front —
+  it does **not** put a login in front of the web UI.
+- `IMPORT_RATE_LIMIT_MAX` — how many `POST /api/recipes/import` calls one
+  client IP may make per window. Default `10`.
+- `IMPORT_RATE_LIMIT_WINDOW_MS` — the rate-limit window, in milliseconds.
+  Default `900000` (15 minutes). Exceeding the limit returns `429`.
+
+These are hardening, not a login: `docker compose up` keeps working unchanged
+for the household, and the question of exposing the app beyond the LAN is
+still [an open decision](#needs-a-human-decision-not-decided-unilaterally).
 
 ## ICA export research findings
 
@@ -237,7 +268,10 @@ Read this before trusting the app with real weekly planning:
 - **Whether/how to expose this beyond your own LAN** (a tunnel, port
   forward, etc.) — doing so with the current no-login model means anyone
   with the link has full read/write access. If you want outside access,
-  it needs auth added first.
+  put real auth at the edge first. The app now ships an optional
+  API-token gate plus a locked-down CORS/header baseline (see
+  [Configuration](#configuration-environment-variables)), but that is
+  defence in depth, not a login — the web UI still has no accounts.
 - **Apple News import is unverified** — if it doesn't work with a real
   link when you try it, that's expected per the limitation above; let me
   know what page/link it fails on and I can adjust the parser.
