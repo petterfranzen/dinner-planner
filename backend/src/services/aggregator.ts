@@ -72,110 +72,109 @@ export function aggregateIngredients(
   planned: PlannedRecipe[],
   recipesById: Map<number, RecipeForAggregation>,
 ): ShoppingListItem[] {
-  if (planned.length === 0) return [];
-
   const groups = new Map<string, Bucket>();
 
   for (const entry of planned) {
     const recipe = recipesById.get(entry.recipeId);
     if (!recipe) continue; // planned slot pointing at a recipe with no rows
 
-    const override = entry.servingsOverride;
-    const scale =
-      override != null && override > 0 && recipe.servings > 0
-        ? override / recipe.servings
-        : 1;
-
-    for (const row of recipe.ingredients) {
-      const normalizedName = normalizeIngredientName(row.name);
-      const scaledQuantity = row.quantity != null ? row.quantity * scale : null;
-
-      if (scaledQuantity == null) {
-        // No readable quantity: one bucket per distinct raw text.
-        const key = `${normalizedName}|noqty|${row.raw_text}`;
-        const existing = groups.get(key);
-        if (existing) {
-          existing.sources.add(row.raw_text);
-        } else {
-          groups.set(key, {
-            name: row.name,
-            category: row.category,
-            unit: row.unit,
-            baseQuantity: null,
-            units: new Set(),
-            sources: new Set([row.raw_text]),
-          });
-        }
-        continue;
-      }
-
-      const conversion = row.unit ? UNIT_CONVERSIONS[row.unit] : undefined;
-      if (conversion && row.unit) {
-        const key = `${normalizedName}|${conversion.family}`;
-        const addend = scaledQuantity * conversion.factor;
-        const existing = groups.get(key);
-        if (existing) {
-          existing.baseQuantity = (existing.baseQuantity ?? 0) + addend;
-          existing.units.add(row.unit);
-          existing.sources.add(row.raw_text);
-        } else {
-          groups.set(key, {
-            name: row.name,
-            category: row.category,
-            unit: row.unit,
-            baseQuantity: addend,
-            units: new Set([row.unit]),
-            sources: new Set([row.raw_text]),
-          });
-        }
-      } else {
-        const key = `${normalizedName}|${row.unit ?? ""}`;
-        const existing = groups.get(key);
-        if (existing) {
-          existing.baseQuantity = (existing.baseQuantity ?? 0) + scaledQuantity;
-          existing.sources.add(row.raw_text);
-        } else {
-          groups.set(key, {
-            name: row.name,
-            category: row.category,
-            unit: row.unit,
-            baseQuantity: scaledQuantity,
-            units: row.unit ? new Set([row.unit]) : new Set(),
-            sources: new Set([row.raw_text]),
-          });
-        }
-      }
-    }
+    const scale = servingsScale(entry.servingsOverride, recipe.servings);
+    for (const row of recipe.ingredients) addRow(groups, row, scale);
   }
 
-  const items: ShoppingListItem[] = [];
-  for (const bucket of groups.values()) {
-    let quantity: number | null = null;
-    let unit: string | null = bucket.unit;
-
-    if (bucket.baseQuantity != null) {
-      if (bucket.units.size > 1) {
-        // Merged across units of one family: report in the family base unit.
-        const [first] = bucket.units;
-        unit = UNIT_CONVERSIONS[first].base;
-        quantity = bucket.baseQuantity;
-      } else {
-        const [only] = bucket.units;
-        const conversion = only ? UNIT_CONVERSIONS[only] : undefined;
-        quantity = conversion ? bucket.baseQuantity / conversion.factor : bucket.baseQuantity;
-        unit = only ?? bucket.unit;
-      }
-    }
-
-    items.push({
-      name: bucket.name,
-      quantity: quantity != null ? Math.round(quantity * 100) / 100 : null,
-      unit,
-      category: bucket.category,
-      sources: Array.from(bucket.sources),
-    });
-  }
-
+  const items = Array.from(groups.values(), toItem);
   items.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
   return items;
+}
+
+function isPositive(n: number | null): n is number {
+  return n != null && n > 0;
+}
+
+/** How much to multiply a recipe's quantities by for one planned meal. */
+function servingsScale(override: number | null, servings: number): number {
+  if (!isPositive(override)) return 1;
+  return servings > 0 ? override / servings : 1;
+}
+
+function conversionFor(unit: string | null): UnitConversion | undefined {
+  return unit ? UNIT_CONVERSIONS[unit] : undefined;
+}
+
+/** Where a row goes and what it adds there. */
+interface Contribution {
+  key: string;
+  /** Amount to add to the bucket; null when the row has no readable quantity. */
+  quantity: number | null;
+  /** Unit to record when the row joins an existing bucket (convertible rows only). */
+  mergedUnit: string | null;
+}
+
+function contributionOf(row: RecipeIngredientRow, scale: number): Contribution {
+  const name = normalizeIngredientName(row.name);
+  if (row.quantity == null) {
+    // No readable quantity: one bucket per distinct raw text.
+    return { key: `${name}|noqty|${row.raw_text}`, quantity: null, mergedUnit: null };
+  }
+  const scaled = row.quantity * scale;
+  const conversion = conversionFor(row.unit);
+  if (conversion) {
+    return { key: `${name}|${conversion.family}`, quantity: scaled * conversion.factor, mergedUnit: row.unit };
+  }
+  return { key: `${name}|${row.unit ?? ""}`, quantity: scaled, mergedUnit: null };
+}
+
+function addRow(groups: Map<string, Bucket>, row: RecipeIngredientRow, scale: number): void {
+  const contribution = contributionOf(row, scale);
+  const existing = groups.get(contribution.key);
+  if (existing) {
+    mergeInto(existing, row, contribution);
+    return;
+  }
+  groups.set(contribution.key, openBucket(row, contribution));
+}
+
+function openBucket(row: RecipeIngredientRow, contribution: Contribution): Bucket {
+  const tracksUnit = contribution.quantity != null && row.unit;
+  return {
+    name: row.name,
+    category: row.category,
+    unit: row.unit,
+    baseQuantity: contribution.quantity,
+    units: tracksUnit ? new Set([row.unit as string]) : new Set(),
+    sources: new Set([row.raw_text]),
+  };
+}
+
+function mergeInto(bucket: Bucket, row: RecipeIngredientRow, contribution: Contribution): void {
+  bucket.sources.add(row.raw_text);
+  if (contribution.quantity == null) return;
+  bucket.baseQuantity = (bucket.baseQuantity ?? 0) + contribution.quantity;
+  if (contribution.mergedUnit) bucket.units.add(contribution.mergedUnit);
+}
+
+/** The quantity and unit a bucket is reported in, before rounding. */
+function reportedAmount(bucket: Bucket): { quantity: number | null; unit: string | null } {
+  if (bucket.baseQuantity == null) return { quantity: null, unit: bucket.unit };
+  const [first] = bucket.units;
+  if (bucket.units.size > 1) {
+    // Merged across units of one family: report in the family base unit.
+    return { quantity: bucket.baseQuantity, unit: UNIT_CONVERSIONS[first].base };
+  }
+  const conversion = first ? UNIT_CONVERSIONS[first] : undefined;
+  return {
+    quantity: conversion ? bucket.baseQuantity / conversion.factor : bucket.baseQuantity,
+    unit: first ?? bucket.unit,
+  };
+}
+
+function toItem(bucket: Bucket): ShoppingListItem {
+  const { quantity, unit } = reportedAmount(bucket);
+  return {
+    name: bucket.name,
+    quantity: quantity != null ? Math.round(quantity * 100) / 100 : null,
+    unit,
+    category: bucket.category,
+    sources: Array.from(bucket.sources),
+  };
 }

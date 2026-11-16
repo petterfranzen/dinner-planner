@@ -13,14 +13,18 @@ interface ManualIngredientInput {
   name: string;
 }
 
-function insertRecipe(
-  title: string,
-  servings: number,
-  instructions: string,
-  ingredients: ParsedIngredient[],
-  sourceUrl: string | null,
-  sourceSite: string | null,
-): number {
+/** What gets stored for one recipe, whether typed in or imported. */
+interface NewRecipe {
+  title: string;
+  servings: number;
+  instructions: string;
+  ingredients: ParsedIngredient[];
+  sourceUrl: string | null;
+  sourceSite: string | null;
+}
+
+function insertRecipe(recipe: NewRecipe): number {
+  const { title, servings, instructions, ingredients, sourceUrl, sourceSite } = recipe;
   const insertRecipeStmt = db.prepare(
     `INSERT INTO recipe (title, servings, instructions, source_url, source_site)
      VALUES (?, ?, ?, ?, ?)`,
@@ -79,43 +83,61 @@ recipesRouter.get("/:id", (req, res) => {
   res.json(recipe);
 });
 
-recipesRouter.post("/", (req, res) => {
-  const body = req.body as {
-    title?: string;
-    servings?: number;
-    instructions?: string;
-    ingredients?: ManualIngredientInput[];
+interface ManualRecipeBody {
+  title?: string;
+  servings?: number;
+  instructions?: string;
+  ingredients?: ManualIngredientInput[];
+}
+
+function isBlank(text: string | undefined): text is undefined {
+  return !text || !text.trim();
+}
+
+function manualRecipeError(body: ManualRecipeBody): string | null {
+  if (isBlank(body.title)) return "title is required";
+  if (!Array.isArray(body.ingredients)) return "at least one ingredient is required";
+  if (body.ingredients.length === 0) return "at least one ingredient is required";
+  return null;
+}
+
+function toParsedIngredient(ing: ManualIngredientInput): ParsedIngredient {
+  if (isBlank(ing.name)) {
+    throw Object.assign(new Error("each ingredient needs a name"), { status: 400 });
+  }
+  return {
+    rawText: ing.rawText?.trim() || describeIngredient(ing),
+    quantity: typeof ing.quantity === "number" ? ing.quantity : null,
+    unit: ing.unit?.trim() || null,
+    name: ing.name.trim(),
+    category: categorize(ing.name),
   };
+}
 
-  if (!body.title || !body.title.trim()) {
-    return res.status(400).json({ error: "title is required" });
-  }
-  if (!Array.isArray(body.ingredients) || body.ingredients.length === 0) {
-    return res.status(400).json({ error: "at least one ingredient is required" });
-  }
+function servingsOrDefault(servings: number | undefined): number {
+  return servings && servings > 0 ? servings : 4;
+}
 
-  const ingredients: ParsedIngredient[] = body.ingredients.map((ing) => {
-    if (!ing.name || !ing.name.trim()) {
-      throw Object.assign(new Error("each ingredient needs a name"), { status: 400 });
-    }
-    return {
-      rawText: ing.rawText?.trim() || describeIngredient(ing),
-      quantity: typeof ing.quantity === "number" ? ing.quantity : null,
-      unit: ing.unit?.trim() || null,
-      name: ing.name.trim(),
-      category: categorize(ing.name),
-    };
-  });
+function manualRecipe(body: ManualRecipeBody, ingredients: ParsedIngredient[]): NewRecipe {
+  return {
+    title: (body.title as string).trim(),
+    servings: servingsOrDefault(body.servings),
+    instructions: body.instructions?.trim() ?? "",
+    ingredients,
+    sourceUrl: null,
+    sourceSite: null,
+  };
+}
+
+recipesRouter.post("/", (req, res) => {
+  const body = req.body as ManualRecipeBody;
+  const error = manualRecipeError(body);
+  if (error) return res.status(400).json({ error });
+
+  const ingredients = (body.ingredients as ManualIngredientInput[]).map(toParsedIngredient);
 
   try {
-    const id = insertRecipe(
-      body.title.trim(),
-      body.servings && body.servings > 0 ? body.servings : 4,
-      body.instructions?.trim() ?? "",
-      ingredients,
-      null,
-      null,
-    );
+    const id = insertRecipe(manualRecipe(body, ingredients));
     res.status(201).json(getRecipeWithIngredients(id));
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500;
@@ -129,19 +151,12 @@ function describeIngredient(ing: ManualIngredientInput): string {
 
 recipesRouter.post("/import", async (req, res) => {
   const url = (req.body as { url?: string }).url;
-  if (!url || !url.trim()) {
+  if (isBlank(url)) {
     return res.status(400).json({ error: "url is required" });
   }
   try {
     const imported = await importRecipeFromUrl(url.trim());
-    const id = insertRecipe(
-      imported.title,
-      imported.servings,
-      imported.instructions,
-      imported.ingredients,
-      imported.sourceUrl,
-      imported.sourceSite,
-    );
+    const id = insertRecipe(imported);
     res.status(201).json(getRecipeWithIngredients(id));
   } catch (err) {
     if (err instanceof RecipeImportError) {

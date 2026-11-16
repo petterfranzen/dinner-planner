@@ -109,27 +109,28 @@ function toStringArray(value: unknown): string[] {
 
 /** Flattens schema.org recipeInstructions (strings, HowToStep, HowToSection, or one big string) into an ordered list of step texts. */
 function extractInstructions(value: unknown): string[] {
-  if (value == null) return [];
-  if (typeof value === "string") {
-    // Some sites put the whole method as one newline/HTML-separated string.
-    return value
-      .split(/\r?\n|<\/p>|<br\s*\/?>/i)
-      .map((s) => s.replace(/<[^>]+>/g, "").trim())
-      .filter(Boolean);
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap(extractInstructions);
-  }
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if (hasType(obj, "HowToSection") && Array.isArray(obj.itemListElement)) {
-      const heading = typeof obj.name === "string" ? [`${obj.name}:`] : [];
-      return [...heading, ...extractInstructions(obj.itemListElement)];
-    }
-    if (typeof obj.text === "string") return [obj.text.trim()];
-    if (typeof obj.name === "string") return [obj.name.trim()];
-  }
+  if (typeof value === "string") return splitInstructionText(value);
+  if (Array.isArray(value)) return value.flatMap(extractInstructions);
+  if (value && typeof value === "object") return stepTexts(value as Record<string, unknown>);
   return [];
+}
+
+// Some sites put the whole method as one newline/HTML-separated string.
+function splitInstructionText(value: string): string[] {
+  return value
+    .split(/\r?\n|<\/p>|<br\s*\/?>/i)
+    .map((s) => s.replace(/<[^>]+>/g, "").trim())
+    .filter(Boolean);
+}
+
+/** The step text(s) of one HowToSection / HowToStep-like object. */
+function stepTexts(obj: Record<string, unknown>): string[] {
+  if (hasType(obj, "HowToSection") && Array.isArray(obj.itemListElement)) {
+    const heading = typeof obj.name === "string" ? [`${obj.name}:`] : [];
+    return [...heading, ...extractInstructions(obj.itemListElement)];
+  }
+  const text = [obj.text, obj.name].find((v) => typeof v === "string") as string | undefined;
+  return text === undefined ? [] : [text.trim()];
 }
 
 function extractServings(value: unknown): number {
@@ -161,40 +162,7 @@ export async function importRecipeFromUrl(rawUrl: string): Promise<ImportedRecip
 // slashes, default ports, escaping) that would otherwise silently change
 // what the recipe records as its source.
 async function fetchAndParse(url: URL, rawUrl: string): Promise<ImportedRecipe> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  let html: string;
-  try {
-    const res = await fetch(url, {
-      redirect: "follow", // needed for apple.news short links, which 30x to the actual article
-      signal: controller.signal,
-      headers: {
-        // A plain fetch UA gets blocked/soft-blocked by some sites; a normal
-        // browser UA is enough to get the same HTML a person's browser sees.
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml",
-      },
-    });
-    if (!res.ok) {
-      throw new RecipeImportError(
-        `Could not fetch that page (HTTP ${res.status}). It may have moved or be blocking automated requests.`,
-        502,
-      );
-    }
-    html = await res.text();
-  } catch (err) {
-    if (err instanceof RecipeImportError) throw err;
-    throw new RecipeImportError(
-      "Could not reach that URL. Check the link and your internet connection.",
-      502,
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const nodes = flattenLdJsonBlocks(html);
-  const recipeNode = findRecipeNode(nodes);
+  const recipeNode = findRecipeNode(flattenLdJsonBlocks(await fetchHtml(url)));
   if (!recipeNode) {
     throw new RecipeImportError(
       "Could not find recipe data (schema.org/Recipe structured data) on that page. " +
@@ -224,4 +192,40 @@ async function fetchAndParse(url: URL, rawUrl: string): Promise<ImportedRecipe> 
     sourceUrl: rawUrl,
     sourceSite: url.hostname.replace(/^www\./, ""),
   };
+}
+
+const FETCH_HEADERS = {
+  // A plain fetch UA gets blocked/soft-blocked by some sites; a normal
+  // browser UA is enough to get the same HTML a person's browser sees.
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml",
+};
+
+/** Fetches the page (15 s cap), mapping every failure to a 502 RecipeImportError. */
+async function fetchHtml(url: URL): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(url, {
+      redirect: "follow", // needed for apple.news short links, which 30x to the actual article
+      signal: controller.signal,
+      headers: FETCH_HEADERS,
+    });
+    if (!res.ok) {
+      throw new RecipeImportError(
+        `Could not fetch that page (HTTP ${res.status}). It may have moved or be blocking automated requests.`,
+        502,
+      );
+    }
+    return await res.text();
+  } catch (err) {
+    if (err instanceof RecipeImportError) throw err;
+    throw new RecipeImportError(
+      "Could not reach that URL. Check the link and your internet connection.",
+      502,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 }
