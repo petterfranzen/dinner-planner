@@ -26,6 +26,29 @@ mealPlanRouter.get("/", (req, res) => {
   res.json({ weekStartDate: week, entries });
 });
 
+interface SlotParams {
+  week: string;
+  day: string;
+  mealType: string;
+}
+
+/** The week/day/meal slot a `/:week/:day/:mealType` route addresses. */
+function slotOf(params: SlotParams) {
+  return { week: mondayOf(params.week), day: Number(params.day), mealType: params.mealType };
+}
+
+function isDayOfWeek(day: number): boolean {
+  return Number.isInteger(day) && day >= 0 && day <= 6;
+}
+
+function slotError(day: number, mealType: string): string | null {
+  if (!isDayOfWeek(day)) return "day must be 0 (Mon) through 6 (Sun)";
+  if (!MEAL_TYPES.includes(mealType as (typeof MEAL_TYPES)[number])) {
+    return `mealType must be one of: ${MEAL_TYPES.join(", ")}`;
+  }
+  return null;
+}
+
 interface UpsertBody {
   recipeId?: number | null;
   servingsOverride?: number | null;
@@ -38,16 +61,9 @@ interface UpsertBody {
 // wins, same as editing a shared doc. Fine for two people on one household
 // network; see README.
 mealPlanRouter.put("/:week/:day/:mealType", (req, res) => {
-  const week = mondayOf(req.params.week);
-  const day = Number(req.params.day);
-  const mealType = req.params.mealType;
-
-  if (!Number.isInteger(day) || day < 0 || day > 6) {
-    return res.status(400).json({ error: "day must be 0 (Mon) through 6 (Sun)" });
-  }
-  if (!MEAL_TYPES.includes(mealType as (typeof MEAL_TYPES)[number])) {
-    return res.status(400).json({ error: `mealType must be one of: ${MEAL_TYPES.join(", ")}` });
-  }
+  const { week, day, mealType } = slotOf(req.params);
+  const error = slotError(day, mealType);
+  if (error) return res.status(400).json({ error });
 
   const body = req.body as UpsertBody;
 
@@ -83,16 +99,9 @@ mealPlanRouter.put("/:week/:day/:mealType", (req, res) => {
 });
 
 mealPlanRouter.delete("/:week/:day/:mealType", (req, res) => {
-  const week = mondayOf(req.params.week);
-  const day = Number(req.params.day);
-  const mealType = req.params.mealType;
-
-  if (!Number.isInteger(day) || day < 0 || day > 6) {
-    return res.status(400).json({ error: "day must be 0 (Mon) through 6 (Sun)" });
-  }
-  if (!MEAL_TYPES.includes(mealType as (typeof MEAL_TYPES)[number])) {
-    return res.status(400).json({ error: `mealType must be one of: ${MEAL_TYPES.join(", ")}` });
-  }
+  const { week, day, mealType } = slotOf(req.params);
+  const error = slotError(day, mealType);
+  if (error) return res.status(400).json({ error });
 
   db.prepare(
     `DELETE FROM meal_plan_entry WHERE week_start_date = ? AND day_of_week = ? AND meal_type = ?`,
