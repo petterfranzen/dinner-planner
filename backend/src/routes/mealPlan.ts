@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
+import { isOptionalNumber, optionalText } from "../requestBody.js";
 import { mondayOf, todayIso } from "../services/dateUtils.js";
 import { MEAL_TYPES, type MealPlanEntryRow } from "../types.js";
 
@@ -50,9 +51,16 @@ function slotError(day: number, mealType: string): string | null {
 }
 
 interface UpsertBody {
-  recipeId?: number | null;
-  servingsOverride?: number | null;
-  note?: string | null;
+  recipeId?: unknown;
+  servingsOverride?: unknown;
+  note?: unknown;
+}
+
+function upsertError(body: UpsertBody): string | null {
+  if (!isOptionalNumber(body.recipeId)) return "recipeId must be a number";
+  if (!isOptionalNumber(body.servingsOverride)) return "servingsOverride must be a number";
+  if (body.note != null && typeof body.note !== "string") return "note must be a string";
+  return null;
 }
 
 // PUT /api/meal-plan/:week/:day/:mealType
@@ -66,6 +74,8 @@ mealPlanRouter.put("/:week/:day/:mealType", (req, res) => {
   if (error) return res.status(400).json({ error });
 
   const body = req.body as UpsertBody;
+  const bodyError = upsertError(body);
+  if (bodyError) return res.status(400).json({ error: bodyError });
 
   if (body.recipeId != null) {
     const exists = db.prepare(`SELECT 1 FROM recipe WHERE id = ?`).get(body.recipeId);
@@ -81,9 +91,9 @@ mealPlanRouter.put("/:week/:day/:mealType", (req, res) => {
     week,
     day,
     mealType,
-    recipeId: body.recipeId ?? null,
-    servingsOverride: body.servingsOverride ?? null,
-    note: body.note?.trim() || null,
+    recipeId: (body.recipeId as number | null | undefined) ?? null,
+    servingsOverride: (body.servingsOverride as number | null | undefined) ?? null,
+    note: optionalText(body.note),
   });
 
   const entry = db
