@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, jest } from "@jest/globals";
+import http from "node:http";
+import net from "node:net";
+import type { AddressInfo } from "node:net";
 import {
   assertSupportedUrl,
   assertSafeRedirectUrl,
   isBlockedHost,
   importRecipeFromUrl,
+  pinnedFetch,
+  type FetchInit,
   RecipeImportError,
   type FetchLike,
   type FetchResponse,
@@ -403,5 +408,96 @@ describe("importRecipeFromUrl - upstream failures map to 502", () => {
         resolve: publicResolver,
       }),
     ).rejects.toMatchObject({ status: 502 });
+  });
+});
+
+describe("importRecipeFromUrl - connects only to the vetted address (DNS rebinding)", () => {
+  it("never reaches the private answer a second lookup would give", async () => {
+    // First answer public, every later answer private: the classic rebinding
+    // shape. A transport that resolved the name again would land on 10.0.0.9.
+    let lookups = 0;
+    const resolve: HostResolver = async () => (lookups++ === 0 ? [PUBLIC_IP] : ["10.0.0.9"]);
+    const connectedTo: string[] = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      connectedTo.push(init.address);
+      return response(pageWithLdJson("application/ld+json"));
+    };
+
+    const recipe = await importRecipeFromUrl("https://www.bbcgoodfood.com/recipes/x", {
+      fetchImpl,
+      resolve,
+    });
+
+    expect(recipe.title).toBe("Pannkaka");
+    expect(connectedTo).toEqual([PUBLIC_IP]);
+    expect(lookups).toBe(1);
+  });
+
+  it("pins each redirect hop to that hop's own vetted address", async () => {
+    const resolve: HostResolver = async (host) =>
+      host === "publisher.example.com" ? ["93.184.216.35"] : [PUBLIC_IP];
+    const connectedTo: string[] = [];
+    const responses = [
+      redirect("https://publisher.example.com/recipe"),
+      response(pageWithLdJson("application/ld+json")),
+    ];
+    const fetchImpl: FetchLike = async (url, init) => {
+      connectedTo.push(`${new URL(url).hostname}=${init.address}`);
+      return responses.shift() as Response;
+    };
+
+    await importRecipeFromUrl("https://apple.news/abc", { fetchImpl, resolve });
+    expect(connectedTo).toEqual([`apple.news=${PUBLIC_IP}`, "publisher.example.com=93.184.216.35"]);
+  });
+});
+
+describe("pinnedFetch - the real transport", () => {
+  const init = (address: string): FetchInit => ({
+    redirect: "manual",
+    signal: new AbortController().signal,
+    headers: { Accept: "text/html" },
+    address,
+  });
+
+  it("connects to the given address and keeps the URL's hostname as Host", async () => {
+    // .invalid never resolves (RFC 6761), so this only succeeds if the
+    // transport skips DNS and uses the pinned address.
+    let seenHost: string | undefined;
+    const server = http.createServer((req, res) => {
+      seenHost = req.headers.host;
+      res.writeHead(302, { location: "/next" }).end();
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const res = await pinnedFetch(`http://rebind.invalid:${port}/recipe`, init("127.0.0.1"));
+      expect(res.status).toBe(302); // redirects are returned, not followed
+      expect(res.headers.get("location")).toBe("/next");
+      expect(seenHost).toBe(`rebind.invalid:${port}`);
+      await res.body?.cancel();
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
+  });
+
+  it("sends the URL's hostname as TLS SNI while connecting to the pinned address", async () => {
+    // A bare TCP server: read the TLS ClientHello, check the SNI, hang up.
+    let hello = Buffer.alloc(0);
+    const server = net.createServer((socket) => {
+      socket.once("data", (chunk) => {
+        hello = chunk;
+        socket.destroy();
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const { port } = server.address() as AddressInfo;
+    try {
+      await expect(
+        pinnedFetch(`https://rebind.invalid:${port}/recipe`, init("127.0.0.1")),
+      ).rejects.toThrow();
+      expect(hello.includes(Buffer.from("rebind.invalid"))).toBe(true);
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
   });
 });

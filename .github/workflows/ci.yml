@@ -44,3 +44,18 @@ jobs:
       - name: Backend type-check and build
         working-directory: backend
         run: npm run build
+
+      - name: Backend tests
+        working-directory: backend
+        run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the compose images
+        run: docker compose build
