@@ -61,9 +61,10 @@ before relying on this for anything more than a household MVP.
 docker compose up --build
 ```
 
-Then open **http://localhost:5174** (backend API is also reachable
-directly on **http://localhost:4000** if you want to poke `/api/...`
-routes with curl). Recipes and the meal plan persist in a named Docker
+Then open **http://localhost:5174** (on the Docker host itself the backend
+API is also reachable directly on **http://localhost:4000** if you want to
+poke `/api/...` routes with curl; compose binds that port to loopback only,
+so other machines on the LAN go through nginx on 5174). Recipes and the meal plan persist in a named Docker
 volume (`backend-data`), so `docker compose down` (without `-v`) keeps
 your data across restarts; `docker compose down -v` wipes it.
 
@@ -111,6 +112,19 @@ a non-Docker run).
   client IP may make per window. Default `10`.
 - `IMPORT_RATE_LIMIT_WINDOW_MS` — the rate-limit window, in milliseconds.
   Default `900000` (15 minutes). Exceeding the limit returns `429`.
+
+The rate limit keys on the client IP. The backend trusts exactly **one**
+proxy hop (`trust proxy` = 1 in `backend/src/index.ts`) and takes the client
+from the last `X-Forwarded-For` entry, which nginx appends. That matches the
+compose setup, where only nginx can reach the backend from other machines. If
+you deploy it differently, keep it matched: with no proxy in front, a client
+could send its own `X-Forwarded-For` and dodge the limit, so set `trust proxy`
+to `false`; with an extra proxy (a tunnel) in front of nginx, raise it to 2.
+
+The backend container runs as the unprivileged `node` user. A `backend-data`
+volume created by an older, root-run image keeps root-owned files; hand it to
+`node` once with
+`docker compose run --rm --user root backend chown -R node:node /app/data`.
 
 These are hardening, not a login: `docker compose up` keeps working unchanged
 for the household, and the question of exposing the app beyond the LAN is

@@ -122,6 +122,8 @@ describe("PUT /api/meal-plan/:week/:day/:mealType - typed upsert body", () => {
     [{ recipeId: {} }, "recipeId must be a number"],
     [{ servingsOverride: "2" }, "servingsOverride must be a number"],
     [{ servingsOverride: [] }, "servingsOverride must be a number"],
+    [{ servingsOverride: 0 }, "servingsOverride must be positive"],
+    [{ servingsOverride: -2 }, "servingsOverride must be positive"],
   ])("rejects %p with 400", async (body, error) => {
     const res = await send("PUT", slot, body);
     expect(res.status).toBe(400);
@@ -131,6 +133,33 @@ describe("PUT /api/meal-plan/:week/:day/:mealType - typed upsert body", () => {
   it("leaves the server healthy after a bad note", async () => {
     const res = await send("PUT", slot, { note: 1 });
     expect(res.status).toBe(400);
+    await expectServerStillUp();
+  });
+});
+
+describe("meal-plan week parameter - an invalid date is a 400, not a 500", () => {
+  const WEEK_ERROR = { error: "week must be a date (YYYY-MM-DD)" };
+
+  it.each(["nope", "2026-13-01", ""])("GET ?week=%p is a 400", async (week) => {
+    const res = await fetch(`${base}/api/meal-plan?week=${encodeURIComponent(week)}`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual(WEEK_ERROR);
+  });
+
+  it("GET with a repeated ?week= (an array) is a 400", async () => {
+    const res = await fetch(`${base}/api/meal-plan?week=2026-11-02&week=2026-11-09`);
+    expect(res.status).toBe(400);
+  });
+
+  it("GET without ?week= still defaults to this week", async () => {
+    const res = await fetch(`${base}/api/meal-plan`);
+    expect(res.status).toBe(200);
+  });
+
+  it.each(["PUT", "DELETE"])("%s on a non-date week is a 400", async (method) => {
+    const res = await send(method, "/api/meal-plan/not-a-date/1/dinner", {});
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual(WEEK_ERROR);
     await expectServerStillUp();
   });
 });

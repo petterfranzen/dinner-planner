@@ -13,9 +13,12 @@ import { corsOrigin, parseOrigins, securityHeaders, varyOrigin } from "./securit
 
 const app = express();
 
-// Behind nginx (in Docker) or a tunnel, the backend sees the proxy's address,
-// not the client's. Trusting one hop lets the per-IP import limiter key on the
-// real client via X-Forwarded-For, which nginx sends (see frontend/nginx.conf).
+// Behind nginx (in Docker) the backend sees the proxy's address, not the
+// client's. Trusting one hop lets the per-IP import limiter key on the real
+// client via the X-Forwarded-For entry nginx appends (see frontend/nginx.conf).
+// This must match the deployment: compose publishes port 4000 on loopback only,
+// so remote clients always come through nginx. Without a proxy in front, a
+// client's own X-Forwarded-For would become req.ip (see README).
 app.set("trust proxy", 1);
 
 // Security headers on every API response. The SPA's own headers (and its CSP,

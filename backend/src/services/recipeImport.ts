@@ -1,5 +1,9 @@
 import { lookup } from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
+import type { LookupFunction } from "node:net";
 import { isIP } from "node:net";
+import { Readable } from "node:stream";
 import { duringPhase } from "../phase.js";
 import { parseIngredientLine } from "./ingredientParser.js";
 import type { ParsedIngredient } from "../types.js";
@@ -19,7 +23,9 @@ import type { ParsedIngredient } from "../types.js";
 //     whose hostname *resolves* to such an address - checked on the pasted
 //     URL and again on every redirect hop - so the fetch cannot be bounced
 //     at the container's own network, a cloud metadata endpoint, or another
-//     service on the LAN. A redirect deliberately does not have to be on the
+//     service on the LAN. The request then connects to the very address that
+//     was checked (no second DNS lookup), so a DNS answer that changes between
+//     the check and the connect (rebinding) cannot reach an internal address. A redirect deliberately does not have to be on the
 //     allowlist (an apple.news share link 30x's to the publisher's own
 //     domain), but it must still pass the scheme and private-address checks.
 //   - stores only the one recipe the person pasted, not the site's catalog
@@ -227,6 +233,10 @@ export interface FetchInit {
   redirect: "manual";
   signal: AbortSignal;
   headers: Record<string, string>;
+  /** The vetted IP to connect to. The URL's hostname is still used for the
+   * Host header and TLS (SNI and certificate check); only the connect target
+   * is pinned, so the request never resolves the name a second time. */
+  address: string;
 }
 
 export interface FetchResponse {
@@ -241,7 +251,48 @@ export type FetchLike = (url: string, init: FetchInit) => Promise<FetchResponse>
 
 export type HostResolver = (hostname: string) => Promise<string[]>;
 
-const defaultFetch: FetchLike = (url, init) => fetch(url, init);
+/** A lookup that answers every query with the one vetted address. */
+function pinnedLookup(address: string): LookupFunction {
+  const family = isIP(address);
+  return (_hostname, options, callback) => {
+    if (options.all) callback(null, [{ address, family }]);
+    else callback(null, address, family);
+  };
+}
+
+/**
+ * The real transport: one request (no redirect following) to `init.address`,
+ * using node:http(s) so the connect address can be pinned while the hostname
+ * still drives Host, SNI and certificate validation. A fresh agent per request
+ * means no pooled socket from another lookup is ever reused.
+ */
+export const pinnedFetch: FetchLike = (rawUrl, init) =>
+  new Promise((resolve, reject) => {
+    const url = new URL(rawUrl);
+    const client = url.protocol === "https:" ? https : http;
+    const req = client.request(
+      url,
+      { headers: init.headers, signal: init.signal, agent: false, lookup: pinnedLookup(init.address) },
+      (res) => {
+        const status = res.statusCode ?? 0;
+        const body = Readable.toWeb(res) as ReadableStream<Uint8Array>;
+        resolve({
+          status,
+          ok: status >= 200 && status < 300,
+          headers: {
+            get(name) {
+              const value = res.headers[name.toLowerCase()];
+              return Array.isArray(value) ? value.join(", ") : (value ?? null);
+            },
+          },
+          body,
+          text: () => new Response(body).text(),
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
 
 const defaultResolve: HostResolver = async (hostname) => {
   const addresses = await lookup(hostname, { all: true });
@@ -249,13 +300,15 @@ const defaultResolve: HostResolver = async (hostname) => {
 };
 
 /**
- * Resolves the host and refuses if *any* address it points at is private.
- * This closes DNS rebinding: an allowlisted name whose A record points into
- * the container's network is blocked even though the name itself looks fine.
+ * Resolves the host, refuses if *any* address it points at is private, and
+ * returns the address to connect to. An allowlisted name whose A record points
+ * into the container's network is blocked even though the name looks fine,
+ * and because the caller connects to the returned address rather than
+ * resolving again, a later DNS answer cannot change where the request goes.
  */
-async function assertResolvesToPublicAddress(url: URL, resolve: HostResolver): Promise<void> {
+async function vettedAddress(url: URL, resolve: HostResolver): Promise<string> {
   const host = unbracket(url.hostname);
-  if (isIP(host)) return; // literal IP - already judged by the caller
+  if (isIP(host)) return host; // literal IP - already judged by the caller
   let addresses: string[];
   try {
     addresses = await resolve(host);
@@ -268,6 +321,7 @@ async function assertResolvesToPublicAddress(url: URL, resolve: HostResolver): P
   if (addresses.length === 0 || addresses.some((address) => isBlockedHost(address))) {
     throw new RecipeImportError(PRIVATE_ADDRESS_MESSAGE, 400);
   }
+  return addresses[0];
 }
 
 /** Reads the body, bailing out as soon as it exceeds the cap. */
@@ -368,11 +422,12 @@ async function finalBody(res: FetchResponse, maxBytes: number): Promise<string> 
 
 /** Resolves the host and issues one request, following redirects manually. */
 async function requestHop(url: URL, ctx: FetchContext): Promise<FetchResponse> {
-  await assertResolvesToPublicAddress(url, ctx.deps.resolve);
+  const address = await vettedAddress(url, ctx.deps.resolve);
   return ctx.deps.fetchImpl(url.toString(), {
     redirect: "manual",
     signal: ctx.signal,
     headers: BROWSER_HEADERS,
+    address,
   });
 }
 
@@ -382,6 +437,7 @@ async function followRedirects(start: URL, ctx: FetchContext): Promise<string> {
   for (let hop = 0; hop <= ctx.deps.maxRedirects; hop++) {
     const res = await requestHop(url, ctx);
     if (!REDIRECT_STATUSES.has(res.status)) return finalBody(res, ctx.deps.maxBytes);
+    await res.body?.cancel().catch(() => undefined); // release the hop's connection
     url = redirectTarget(res, url);
   }
   throw new RecipeImportError("That URL redirected too many times. Try the final link.", 502);
@@ -527,7 +583,7 @@ export async function importRecipeFromUrl(
 ): Promise<ImportedRecipe> {
   const url = assertSupportedUrl(rawUrl);
   const deps: FetchDeps = {
-    fetchImpl: options.fetchImpl ?? defaultFetch,
+    fetchImpl: options.fetchImpl ?? pinnedFetch,
     resolve: options.resolve ?? defaultResolve,
     timeoutMs: options.timeoutMs ?? FETCH_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? MAX_RESPONSE_BYTES,
